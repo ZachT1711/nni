@@ -7,7 +7,7 @@
 * 在 Experiment 中，神经架构候选项和超参数候选项得到了更友好的支持。
 * Experiment 可以直接从 Python 代码启动。
 
-NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至 Retiarii 框架。 因此，此功能仍然是实验性的。 NNI 建议用户尝试新的框架，并提供有价值的反馈来改进它。 旧框架目前仍受支持。*
+NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至Retiarii框架。 因此，此功能仍然是实验性的。 NNI 建议用户尝试新的框架，并提供有价值的反馈来改进它。 旧框架目前仍受支持。*
 
 .. contents::
 
@@ -24,7 +24,7 @@ NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至 Retiarii 框架
 定义基本模型与定义 PyTorch（或 TensorFlow）模型几乎相同， 只有两个小区别。
 
 * 对于 PyTorch 模块（例如 ``nn.Conv2d``, ``nn.ReLU``），将代码 ``import torch.nn as nn`` 替换为 ``import nni.retiarii.nn.pytorch as nn`` 。
-* 一些\ **用户定义**\ 的模块应该用 ``@blackbox_module`` 修饰。 例如，``LayerChoice`` 中使用的用户定义模块应该被修饰。 用户可参考 `这里 <#blackbox-module>`__ 获取 ``@blackbox_module`` 的详细使用说明。
+* Some **user-defined** modules should be decorated with ``@basic_unit``. 例如，``LayerChoice`` 中使用的用户定义模块应该被修饰。 Users can refer to `here <#serialize-module>`__ for detailed usage instruction of ``@basic_unit``.
 
 下面是定义基本模型的一个简单的示例，它与定义 PyTorch 模型几乎相同。
 
@@ -59,7 +59,7 @@ NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至 Retiarii 框架
 
 为了易于使用和向后兼容，我们提供了一些 API，供用户在定义基本模型后轻松表达可能的突变。 API 可以像 PyTorch 模块一样使用。
 
-* ``nn.LayerChoice``， 它允许用户放置多个候选操作（例如，PyTorch 模块），在每个探索的模型中选择其中一个。 *注意，如果候选模块是用户定义的模块，则应将其修饰为* `blackbox module <#blackbox-module>`__。 在下面的例子中，``ops.PoolBN`` 和 ``ops.SepConv`` 应该被修饰。
+* ``nn.LayerChoice``， 它允许用户放置多个候选操作（例如，PyTorch 模块），在每个探索的模型中选择其中一个。 *Note that if the candidate is a user-defined module, it should be decorated as `serialize module <#serialize-module>`__. 在下面的例子中，``ops.PoolBN`` 和 ``ops.SepConv`` 应该被修饰。
 
   .. code-block:: python
 
@@ -83,7 +83,7 @@ NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至 Retiarii 框架
     # 在 `forward` 函数中调用，三者选一
     out = self.input_switch([tensor1, tensor2, tensor3])
 
-* ``nn.ValueChoice``， 它用于从一些候选值中选择一个值。 它能用作 ``nn.modules`` 中的模块和 ``@blackbox_module`` 修饰的用户自定义模块中的输入参数。
+* ``nn.ValueChoice``， 它用于从一些候选值中选择一个值。 It can only be used as input argument of the modules in ``nn.modules`` and ``@basic_unit`` decorated user-defined modules.
 
   .. code-block:: python
 
@@ -129,38 +129,37 @@ NNI 正在把 `之前 NAS 框架 <../Overview.rst>`__ *迁移至 Retiarii 框架
 
 .. code-block:: python
 
-  ph = nn.Placeholder(label='mutable_0',
-    related_info={
-      'kernel_size_options': [1, 3, 5],
-      'n_layer_options': [1, 2, 3, 4],
-      'exp_ratio': exp_ratio,
-      'stride': stride
-    }
+  ph = nn.Placeholder(
+    label='mutable_0',
+    kernel_size_options=[1, 3, 5],
+    n_layer_options=[1, 2, 3, 4],
+    exp_ratio=exp_ratio,
+    stride=stride
   )
 
-Mutator 使用 ``label`` 来标识此占位符，``related_info`` 是 Mutator 所需的信息。 由于 ``related_info`` 是一个 dict，所以它可以包含用户想要输入的任何信息，并将其传递给用户定义的 Mutator。 完整的示例代码在 :githublink:`Mnasnet base model <test/retiarii_test/mnasnet/base_mnasnet.py>`。
+``label`` is used by mutator to identify this placeholder. The other parameters are the information that are required by mutator. They can be accessed from ``node.operation.parameters`` as a dict, it could include any information that users want to put to pass it to user defined mutator. 完整的示例代码在 :githublink:`Mnasnet base model <test/retiarii_test/mnasnet/base_mnasnet.py>`。
 
 探索定义的模型空间
 ------------------------------------------
 
-在模型空间被定义之后，是时候探索这个模型空间了。 用户可以选择合适的搜索和训练方法来探索模型空间。
+在模型空间被定义之后，是时候探索这个模型空间了。 Users can choose proper search and model evaluator to explore the model space.
 
-创建 Trainer 和探索 Strategy
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Create an Evaluator and Exploration Strategy
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 **经典搜索方法：**
-在这种方法中，Trainer 负责对每个探索的模型进行训练，而 Strategy 则负责对模型进行抽样。 探索模型空间既需要 Trainer，也需要 Strategy。 我们推荐使用 PyTorch-Lightning 编写完整的训练过程。
+In this approach, model evaluator is for training and testing each explored model, while strategy is for sampling the models. Both evaluator and strategy are required to explore the model space. We recommend PyTorch-Lightning to write the full evaluation process.
 
 **Oneshot（权重共享）探索方法：**
-在这种方法中，用户只需要一个 Oneshot Trainer，来负责探索和训练。
+In this approach, users only need a oneshot trainer, because this trainer takes charge of both search, training and testing.
 
-在下表中，我们列出了可用的 Trainer 和 Strategy。
+In the following table, we listed the available evaluators and strategies.
 
 .. list-table::
   :header-rows: 1
   :widths: auto
 
-  * - Trainer
+  * - Evaluator
     - Strategy
     - Oneshot Trainer
   * - 分类
@@ -178,24 +177,24 @@ Mutator 使用 ``label`` 来标识此占位符，``related_info`` 是 Mutator �
 
 使用说明和 API 文档在 `这里 <./ApiReference>`__。
 
-下面是一个使用 Trainer 和 Strategy 的简单示例。
+Here is a simple example of using evaluator and strategy.
 
 .. code-block:: python
 
-  import nni.retiarii.trainer.pytorch.lightning as pl
-  from nni.retiarii import blackbox
+  import nni.retiarii.evaluator.pytorch.lightning as pl
+  from nni.retiarii import serialize
   from torchvision import transforms
 
   transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-  train_dataset = blackbox(MNIST, root='data/mnist', train=True, download=True, transform=transform)
-  test_dataset = blackbox(MNIST, root='data/mnist', train=False, download=True, transform=transform)
+  train_dataset = serialize(MNIST, root='data/mnist', train=True, download=True, transform=transform)
+  test_dataset = serialize(MNIST, root='data/mnist', train=False, download=True, transform=transform)
   lightning = pl.Classification(train_dataloader=pl.DataLoader(train_dataset, batch_size=100),
                                 val_dataloaders=pl.DataLoader(test_dataset, batch_size=100),
                                 max_epochs=10)
 
-.. Note:: 为了使 NNI 能够捕获数据集和 dataloader 并让其分别运行，请使用 ``blackbox`` 包装数据集，并使用 ``pl.DataLoader`` 而不是 ``torch.utils.data.DataLoader``。 参考 ``blackbox_module`` 部分获取更多细节信息。
+.. Note:: For NNI to capture the dataset and dataloader and distribute it across different runs, please wrap your dataset with ``serialize`` and use ``pl.DataLoader`` instead of ``torch.utils.data.DataLoader``. See ``basic_unit`` section below for details.
 
-用户可查看 `API 说明 <./ApiReference.rst>`__ 获取 Trainer 的详细用法。 参考 "`此文档 <./WriteTrainer.rst>`__" 编写一个新的 Trainer，参考 `此文档 <./WriteStrategy.rst>`__ 编写一个新的 Strategy。
+Users can refer to `API reference <./ApiReference.rst>`__ on detailed usage of evaluator. 参考 "`此文档 <./WriteTrainer.rst>`__" 编写一个新的 Trainer，参考 `此文档 <./WriteStrategy.rst>`__ 编写一个新的 Strategy。
 
 发起 Experiment
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -231,17 +230,17 @@ Mutator 使用 ``label`` 来标识此占位符，``related_info`` 是 Mutator �
 高级功能和常见问题
 --------------------------------
 
-.. _blackbox-module:
+.. _serialize-module:
 
-**Blackbox Module**
+**Serialize Module**
 
-为了理解修饰器 ``blackbox_module``，首先需要解释一下我们的框架是如何工作的：它将用户定义的模型转换为图表示形式（称为 graph IR），每个实例化的模块都将转换为一个子图， 然后将用户定义的突变应用于图上以生成新的图， 并将每个新图转换回 PyTorch 代码执行。 ``@blackbox_module`` 这里的意思是模块不会被转换成子图，而是被转换成单个图节点。 也就是说，该模块将不再展开。 在以下情况下，用户应该/可以修饰自定义的模块类：
+To understand the decorator ``basic_unit``, we first briefly explain how our framework works: it converts user-defined model to a graph representation (called graph IR), each instantiated module is converted to a subgraph. 然后将用户定义的突变应用于图上以生成新的图， 并将每个新图转换回 PyTorch 代码执行。 ``@basic_unit`` here means the module will not be converted to a subgraph but is converted to a single graph node. 也就是说，该模块将不再展开。 在以下情况下，用户应该/可以修饰自定义的模块类：
 
-* 当模块类由于某些实现问题无法成功转换为子图时。 例如，目前 Retiarii 的框架不支持 adhoc 循环，如果一个模块的 forward 中有 adhoc 循环，那么这个类应该被修饰成 blackbox 模块。 下面的 ``MyModule`` 应该被修饰：
+* 当模块类由于某些实现问题无法成功转换为子图时。 For example, currently our framework does not support adhoc loop, if there is adhoc loop in a module's forward, this class should be decorated as serializeble module. 下面的 ``MyModule`` 应该被修饰：
 
   .. code-block:: python
 
-    @blackbox_module
+    @basic_unit
     class MyModule(nn.Module):
       def __init__(self):
         ...
@@ -249,6 +248,6 @@ Mutator 使用 ``label`` 来标识此占位符，``related_info`` 是 Mutator �
         for i in range(10): # <- adhoc loop
           ...
 
-* ``LayerChoice`` 中的候选操作应修饰为 blackbox 模块。 例如，在 ``self.op = nn.LayerChoice([Op1(...), Op2(...), Op3(...)])``中，如果 ``Op1``, ``Op2``, ``Op3`` 是用户自定义的模块，则应该被修饰。
-* 当用户希望在模块的输入参数中使用 ``ValueChoice`` 时，应该将该模块修饰为 blackbox 模块。 例如，在 ``self.conv = MyConv(kernel_size=nn.ValueChoice([1, 3, 5]))`` 中，``MyConv`` 应该被修饰。
-* 如果没有针对某个模块的突变，那么这个模块\ *可以*\ 修饰成一个 blackbox 模块。
+* The candidate ops in ``LayerChoice`` should be decorated as serializable module. 例如，在 ``self.op = nn.LayerChoice([Op1(...), Op2(...), Op3(...)])``中，如果 ``Op1``, ``Op2``, ``Op3`` 是用户自定义的模块，则应该被修饰。
+* When users want to use ``ValueChoice`` in a module's input argument, the module should be decorated as serializable module. 例如，在 ``self.conv = MyConv(kernel_size=nn.ValueChoice([1, 3, 5]))`` 中，``MyConv`` 应该被修饰。
+* If no mutation is targeted on a module, this module *can be* decorated as a serializable module.
